@@ -33,8 +33,8 @@ import doc15 from './doc15.png'
 import Dermatologist from './Dermatologist.svg'
 import Gastroenterologist from './Gastroenterologist.svg'
 import General_physician from './General_physician.svg'
-import Gynecologist from './gynecologist.png'
-import Neurologist from './Neurologist.svg'
+import Gynecologist from './gynecologist.svg'
+import Neurologist from './neurologist.svg'
 import Pediatricians from './Pediatricians.svg'
 
 
