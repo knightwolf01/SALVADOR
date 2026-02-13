@@ -41,6 +41,18 @@ const appointmentSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  paymentOrderId: {
+    type: String,
+    default: ''
+  },
+  paymentId: {
+    type: String,
+    default: ''
+  },
+  paymentSignature: {
+    type: String,
+    default: ''
+  },
   isCompleted: {
     type: Boolean,
     default: false

@@ -1,10 +1,23 @@
 import validator from 'validator'
 import bcrypt from 'bcrypt'
 import jwt from 'jsonwebtoken'
+import crypto from 'crypto'
+import Razorpay from 'razorpay'
 import { v2 as cloudinary } from 'cloudinary'
 import userModel from '../models/userModel.js'
 import doctorModel from '../models/doctorModel.js'
 import appointmentModel from '../models/appointmentModel.js'
+
+const getRazorpayInstance = () => {
+  if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
+    return null
+  }
+
+  return new Razorpay({
+    key_id: process.env.RAZORPAY_KEY_ID,
+    key_secret: process.env.RAZORPAY_KEY_SECRET
+  })
+}
 
 // API to register user
 const registerUser = async (req, res) => {
@@ -229,4 +242,129 @@ const cancelAppointment = async (req, res) => {
 
 }
 
-export { registerUser, loginUser, getProfile, updateProfile, bookAppointment, listAppointment, cancelAppointment }
+// API to make payment of appointment using Razorpay
+const paymentRazorpay = async (req, res) => {
+
+  try {
+
+    const { userId, appointmentId } = req.body
+
+    if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
+      return res.json({ success: false, message: 'Razorpay is not configured' })
+    }
+    const razorpayInstance = getRazorpayInstance()
+
+    if (!razorpayInstance) {
+      return res.json({ success: false, message: 'Razorpay is not configured' })
+    }
+
+    const appointmentData = await appointmentModel.findById(appointmentId)
+
+    if (!appointmentData) {
+      return res.json({ success: false, message: 'Appointment not found' })
+    }
+
+    if (appointmentData.userId !== userId) {
+      return res.json({ success: false, message: 'Unauthorized action' })
+    }
+
+    if (appointmentData.cancelled) {
+      return res.json({ success: false, message: 'Appointment is cancelled' })
+    }
+
+    if (appointmentData.payment) {
+      return res.json({ success: false, message: 'Appointment already paid' })
+    }
+
+    const options = {
+      amount: appointmentData.amount * 100,
+      currency: 'INR',
+      receipt: appointmentId
+    }
+
+    const order = await razorpayInstance.orders.create(options)
+
+    await appointmentModel.findByIdAndUpdate(appointmentId, {
+      paymentOrderId: order.id
+    })
+
+    res.json({
+      success: true,
+      order,
+      razorpayKey: process.env.RAZORPAY_KEY_ID
+    })
+
+  } catch (error) {
+    console.log(error)
+    res.json({ success: false, message: error.message })
+  }
+
+}
+
+// API to verify Razorpay payment
+const verifyRazorpay = async (req, res) => {
+
+  try {
+
+    const {
+      userId,
+      appointmentId,
+      razorpay_order_id,
+      razorpay_payment_id,
+      razorpay_signature
+    } = req.body
+
+    const appointmentData = await appointmentModel.findById(appointmentId)
+
+    if (!appointmentData) {
+      return res.json({ success: false, message: 'Appointment not found' })
+    }
+
+    if (appointmentData.userId !== userId) {
+      return res.json({ success: false, message: 'Unauthorized action' })
+    }
+
+    if (appointmentData.cancelled) {
+      return res.json({ success: false, message: 'Appointment is cancelled' })
+    }
+
+    const generatedSignature = crypto
+      .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
+      .update(`${razorpay_order_id}|${razorpay_payment_id}`)
+      .digest('hex')
+
+    if (generatedSignature !== razorpay_signature) {
+      return res.json({ success: false, message: 'Payment verification failed' })
+    }
+
+    if (appointmentData.paymentOrderId && appointmentData.paymentOrderId !== razorpay_order_id) {
+      return res.json({ success: false, message: 'Invalid payment order' })
+    }
+
+    await appointmentModel.findByIdAndUpdate(appointmentId, {
+      payment: true,
+      paymentOrderId: razorpay_order_id,
+      paymentId: razorpay_payment_id,
+      paymentSignature: razorpay_signature
+    })
+
+    res.json({ success: true, message: 'Payment Successful' })
+
+  } catch (error) {
+    console.log(error)
+    res.json({ success: false, message: error.message })
+  }
+
+}
+
+export {
+  registerUser,
+  loginUser,
+  getProfile,
+  updateProfile,
+  bookAppointment,
+  listAppointment,
+  cancelAppointment,
+  paymentRazorpay,
+  verifyRazorpay
+}
